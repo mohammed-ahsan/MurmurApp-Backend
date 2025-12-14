@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique @db.VarChar(30)
+  email         String    @unique @db.VarChar(255)
+  displayName   String    @db.VarChar(50)
+  password      String    @db.VarChar(255)
+  avatar        String?   @db.VarChar(500)
+  bio           String?   @db.VarChar(160)
+  followersCount Int       @default(0)
+  followingCount Int       @default(0)
+  murmursCount  Int       @default(0)
+  isActive      Boolean   @default(true)
+  lastLogin     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  murmurs     Murmur[]
+  likes       Like[]
+  following   Follow[] @relation("UserFollowing")
+  followers   Follow[] @relation("UserFollowers")
+
+  @@map("users")
+}
+
+model Murmur {
+  id            String    @id @default(cuid())
+  content       String    @db.VarChar(280)
+  userId        String
+  replyToId     String?
+  likesCount    Int       @default(0)
+  repliesCount  Int       @default(0)
+  retweetsCount Int       @default(0)
+  isDeleted     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replyTo  Murmur?    @relation("MurmurReplies", fields: [replyToId], references: [id])
+  replies  Murmur[]   @relation("MurmurReplies")
+  likes    Like[]
+
+  @@map("murmurs")
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  murmurId  String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  murmur Murmur @relation(fields: [murmurId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, murmurId])
+  @@map("likes")
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  // Relations
+  follower  User @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("follows")
+}
