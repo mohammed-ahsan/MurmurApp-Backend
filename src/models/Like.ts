@@ -235,8 +235,9 @@ export class LikeService {
     });
 
     likes.forEach((like: any) => {
-      if (likedUsersMap[like.murmurId]) {
-        likedUsersMap[like.murmurId].push(like.userId);
+      const murmurId = like.murmurId;
+      if (likedUsersMap[murmurId]) {
+        likedUsersMap[murmurId].push(like.userId);
       }
     });
 

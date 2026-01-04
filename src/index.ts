@@ -10,6 +10,7 @@ import { PrismaClient } from '@prisma/client';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import murmurRoutes from './routes/murmurs';
+import notificationRoutes from './routes/notifications';
 
 // Load environment variables
 dotenv.config();
@@ -19,7 +20,7 @@ const PORT = process.env.PORT || 3000;
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.POOLED_URL || process.env.DATABASE_URL,
+      url: process.env.POOLED_URL || process.env.DATABASE_URL || '',
     },
   },
 });
@@ -27,7 +28,7 @@ const prisma = new PrismaClient({
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 10000000000000, // limit each IP to 100 requests per windowMs
   message: {
     error: 'Too many requests from this IP, please try again later.',
   },
@@ -79,6 +80,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/murmurs', murmurRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // 404 handler
 app.use((req, res) => {

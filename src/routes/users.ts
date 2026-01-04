@@ -2,6 +2,7 @@ import express from 'express';
 import { query, validationResult } from 'express-validator';
 import UserService from '../models/User';
 import FollowService from '../models/Follow';
+import NotificationService from '../models/Notification';
 import { authenticate, optionalAuth, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
@@ -23,6 +24,12 @@ const handleValidationErrors = (req: express.Request, res: express.Response, nex
 router.get('/:userId', optionalAuth, async (req: AuthRequest, res: express.Response) => {
   try {
     const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
 
     const user = await UserService.findById(userId);
     if (!user) {
@@ -69,6 +76,13 @@ router.get('/:userId', optionalAuth, async (req: AuthRequest, res: express.Respo
 router.post('/:userId/follow', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const targetUserId = req.params.userId;
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+    
     const currentUserId = req.user.id;
 
     // Check if target user exists
@@ -99,6 +113,9 @@ router.post('/:userId/follow', authenticate, async (req: AuthRequest, res: expre
       UserService.updateCounts(targetUserId, { followersCount: 1 }),
     ]);
 
+    // Create notification for the followed user
+    await NotificationService.create('follow', targetUserId, currentUserId);
+
     return res.json({
       success: true,
       message: 'User followed successfully',
@@ -120,6 +137,13 @@ router.post('/:userId/follow', authenticate, async (req: AuthRequest, res: expre
 router.delete('/:userId/follow', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const targetUserId = req.params.userId;
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+    
     const currentUserId = req.user.id;
 
     // Check if target user exists
@@ -180,6 +204,13 @@ router.get('/:userId/followers', [
 ], handleValidationErrors, async (req: express.Request, res: express.Response) => {
   try {
     const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+    
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;
@@ -232,6 +263,13 @@ router.get('/:userId/following', [
 ], handleValidationErrors, async (req: express.Request, res: express.Response) => {
   try {
     const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+    
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;
@@ -284,6 +322,13 @@ router.get('/search/:query', [
 ], handleValidationErrors, async (req: express.Request, res: express.Response) => {
   try {
     const query = req.params.query;
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        error: 'Search query is required',
+      });
+    }
+    
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;

@@ -31,6 +31,8 @@ model User {
   likes       Like[]
   following   Follow[] @relation("UserFollowing")
   followers   Follow[] @relation("UserFollowers")
+  notifications Notification[] @relation("UserNotifications")
+  triggeredNotifications Notification[] @relation("NotificationActor")
 
   @@map("users")
 }
@@ -52,6 +54,7 @@ model Murmur {
   replyTo  Murmur?    @relation("MurmurReplies", fields: [replyToId], references: [id])
   replies  Murmur[]   @relation("MurmurReplies")
   likes    Like[]
+  notifications Notification[]
 
   @@map("murmurs")
 }
@@ -82,4 +85,23 @@ model Follow {
 
   @@unique([followerId, followingId])
   @@map("follows")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   @db.VarChar(20) // 'like', 'follow', 'reply'
+  userId    String   // User who receives the notification
+  actorId   String   // User who triggered the notification
+  murmurId  String?  // Related murmur (for likes and replies)
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relations
+  user   User    @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  actor  User    @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+  murmur Murmur? @relation(fields: [murmurId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }

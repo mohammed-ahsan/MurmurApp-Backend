@@ -28,11 +28,12 @@ export interface IMurmurCreate {
 
 export class MurmurService {
   // Create a new murmur
-  static async create(userId: string, content: string): Promise<Murmur> {
+  static async create(userId: string, content: string, replyToId?: string): Promise<Murmur> {
     return await prisma.murmur.create({
       data: {
         userId,
         content,
+        ...(replyToId && { replyToId }),
       },
       include: {
         user: {
@@ -92,7 +93,6 @@ export class MurmurService {
     });
 
     const followingIds = follows.map((f: any) => f.followingId);
-    followingIds.push(userId); // Include user's own murmurs
 
     const murmurs = await prisma.murmur.findMany({
       where: {

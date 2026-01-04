@@ -4,6 +4,7 @@ import MurmurService from '../models/Murmur';
 import LikeService from '../models/Like';
 import UserService from '../models/User';
 import FollowService from '../models/Follow';
+import NotificationService from '../models/Notification';
 import { authenticate, optionalAuth, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
@@ -41,11 +42,8 @@ router.get('/timeline', authenticate, [
     // Get users that the current user follows
     const { following } = await FollowService.getFollowing(userId, 1000, 0); // Get all following
     const followingIds = following.map((user: any) => user.id);
-    
-    // Include current user's murmurs as well
-    followingIds.push(userId);
 
-    // Get murmurs from followed users
+    // Get murmurs from followed users (excluding current user's own murmurs)
     const { murmurs, totalCount } = await MurmurService.getTimeline(userId, limit, offset);
 
     // Get like counts and user's likes for each murmur
@@ -89,7 +87,7 @@ router.get('/timeline', authenticate, [
 });
 
 // Get all murmurs (public feed)
-router.get('/', [
+router.get('/', optionalAuth, [
   query('page')
     .optional()
     .isInt({ min: 1 })
@@ -98,7 +96,7 @@ router.get('/', [
     .optional()
     .isInt({ min: 1, max: 50 })
     .withMessage('Limit must be between 1 and 50'),
-], handleValidationErrors, async (req: express.Request, res: express.Response) => {
+], handleValidationErrors, async (req: AuthRequest, res: express.Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -112,10 +110,19 @@ router.get('/', [
       murmurIds.map((id: string) => LikeService.getLikeCount(id))
     );
 
+    // Check if current user liked each murmur (if authenticated)
+    let userLikes: boolean[] = [];
+    if (req.user) {
+      userLikes = await Promise.all(
+        murmurIds.map((id: string) => LikeService.isUserLiked(req.user.id, id))
+      );
+    }
+
     // Format response
     const formattedMurmurs = murmurs.map((murmur: any, index: number) => ({
       ...murmur,
       likesCount: likeCounts[index],
+      isLikedByUser: req.user ? userLikes[index] : false,
     }));
 
     return res.json({
@@ -141,8 +148,8 @@ router.get('/', [
   }
 });
 
-// Get user's murmurs - This must come before /:id route
-router.get('/user/:userId', [
+// Get user's liked murmurs - This must come before user/:userId route
+router.get('/user/:userId/likes', authenticate, [
   query('page')
     .optional()
     .isInt({ min: 1 })
@@ -151,9 +158,96 @@ router.get('/user/:userId', [
     .optional()
     .isInt({ min: 1, max: 50 })
     .withMessage('Limit must be between 1 and 50'),
-], handleValidationErrors, async (req: express.Request, res: express.Response) => {
+], handleValidationErrors, async (req: AuthRequest, res: express.Response) => {
   try {
     const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+    
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const offset = (page - 1) * limit;
+
+    // Check if user exists
+    const user = await UserService.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    // Get user's likes
+    const { likes, totalCount } = await LikeService.getLikesByUser(userId, limit, offset);
+
+    // Extract murmurs from likes
+    const murmurs = likes.map((like: any) => like.murmur).filter((murmur: any) => murmur && !murmur.isDeleted);
+
+    // Get like counts and check if current user liked each murmur
+    const murmurIds = murmurs.map((m: any) => m.id);
+    const likeCounts = await Promise.all(
+      murmurIds.map((id: string) => LikeService.getLikeCount(id))
+    );
+
+    const currentUserId = req.user.id;
+    const userLikes = await Promise.all(
+      murmurIds.map((id: string) => LikeService.isUserLiked(currentUserId, id))
+    );
+
+    // Format response
+    const formattedMurmurs = murmurs.map((murmur: any, index: number) => ({
+      ...murmur,
+      likesCount: likeCounts[index],
+      isLikedByUser: userLikes[index],
+    }));
+
+    return res.json({
+      success: true,
+      data: {
+        murmurs: formattedMurmurs,
+        pagination: {
+          page,
+          limit,
+          totalCount: murmurs.length,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNextPage: page * limit < totalCount,
+          hasPreviousPage: page > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Get user liked murmurs error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user liked murmurs',
+    });
+  }
+});
+
+// Get user's murmurs - This must come before /:id route
+router.get('/user/:userId', optionalAuth, [
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be a positive integer'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 50 })
+    .withMessage('Limit must be between 1 and 50'),
+], handleValidationErrors, async (req: AuthRequest, res: express.Response) => {
+  try {
+    const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+    
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const offset = (page - 1) * limit;
@@ -175,10 +269,19 @@ router.get('/user/:userId', [
       murmurIds.map((id: string) => LikeService.getLikeCount(id))
     );
 
+    // Check if current user liked each murmur (if authenticated)
+    let userLikes: boolean[] = [];
+    if (req.user) {
+      userLikes = await Promise.all(
+        murmurIds.map((id: string) => LikeService.isUserLiked(req.user.id, id))
+      );
+    }
+
     // Format response
     const formattedMurmurs = murmurs.map((murmur: any, index: number) => ({
       ...murmur,
       likesCount: likeCounts[index],
+      isLikedByUser: req.user ? userLikes[index] : false,
     }));
 
     return res.json({
@@ -218,6 +321,12 @@ router.get('/user/:userId', [
 router.get('/:id', optionalAuth, async (req: AuthRequest, res: express.Response) => {
   try {
     const murmurId = req.params.id;
+    if (!murmurId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Murmur ID is required',
+      });
+    }
 
     const murmur = await MurmurService.findById(murmurId);
 
@@ -262,15 +371,38 @@ router.post('/', authenticate, [
     .isLength({ min: 1, max: 280 })
     .withMessage('Content must be between 1 and 280 characters')
     .trim(),
+  body('replyToId')
+    .optional()
+    .isString()
+    .withMessage('Reply to ID must be a string'),
 ], handleValidationErrors, async (req: AuthRequest, res: express.Response) => {
   try {
-    const { content } = req.body;
+    const { content, replyToId } = req.body;
     const userId = req.user.id;
 
-    const murmur = await MurmurService.create(userId, content);
+    // If it's a reply, check if the parent murmur exists
+    if (replyToId) {
+      const parentMurmur = await MurmurService.findById(replyToId);
+      if (!parentMurmur) {
+        return res.status(404).json({
+          success: false,
+          error: 'Parent murmur not found',
+        });
+      }
+    }
+
+    const murmur = await MurmurService.create(userId, content, replyToId);
 
     // Update user's murmur count
     await UserService.updateCounts(userId, { murmursCount: 1 });
+
+    // If it's a reply, create notification for the parent murmur author
+    if (replyToId) {
+      const parentMurmur = await MurmurService.findById(replyToId);
+      if (parentMurmur) {
+        await NotificationService.create('reply', parentMurmur.userId, userId, replyToId);
+      }
+    }
 
     return res.status(201).json({
       success: true,
@@ -296,6 +428,13 @@ router.post('/', authenticate, [
 router.delete('/:id', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const murmurId = req.params.id;
+    if (!murmurId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Murmur ID is required',
+      });
+    }
+    
     const userId = req.user.id;
 
     const murmur = await MurmurService.findById(murmurId);
@@ -332,6 +471,13 @@ router.delete('/:id', authenticate, async (req: AuthRequest, res: express.Respon
 router.post('/:id/like', authenticate, async (req: AuthRequest, res: express.Response) => {
   try {
     const murmurId = req.params.id;
+    if (!murmurId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Murmur ID is required',
+      });
+    }
+    
     const userId = req.user.id;
 
     // Check if murmur exists
@@ -361,6 +507,9 @@ router.post('/:id/like', authenticate, async (req: AuthRequest, res: express.Res
     } else {
       // Like
       await LikeService.like(userId, murmurId);
+
+      // Create notification for the murmur author
+      await NotificationService.create('like', murmur.userId, userId, murmurId);
 
       return res.json({
         success: true,
