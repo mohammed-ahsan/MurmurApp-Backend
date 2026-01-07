@@ -7,6 +7,7 @@ type Murmur = {
   id: string;
   userId: string;
   content: string;
+  replyToId: string | null;
   likesCount: number;
   repliesCount: number;
   retweetsCount: number;
@@ -98,6 +99,7 @@ export class MurmurService {
       where: {
         userId: { in: followingIds },
         isDeleted: false,
+        replyToId: null,
       },
       include: {
         user: {
@@ -118,6 +120,7 @@ export class MurmurService {
       where: {
         userId: { in: followingIds },
         isDeleted: false,
+        replyToId: null,
       },
     });
 
@@ -125,12 +128,21 @@ export class MurmurService {
   }
 
   // Get public murmurs
-  static async getPublicMurmurs(limit: number = 10, offset: number = 0): Promise<{
+  static async getPublicMurmurs(limit: number = 10, offset: number = 0, excludeUserId?: string): Promise<{
     murmurs: Murmur[];
     totalCount: number;
   }> {
+    const whereClause: any = {
+      isDeleted: false,
+      replyToId: null,
+    };
+
+    if (excludeUserId) {
+      whereClause.userId = { not: excludeUserId };
+    }
+
     const murmurs = await prisma.murmur.findMany({
-      where: { isDeleted: false },
+      where: whereClause,
       include: {
         user: {
           select: {
@@ -147,7 +159,7 @@ export class MurmurService {
     });
 
     const totalCount = await prisma.murmur.count({
-      where: { isDeleted: false },
+      where: whereClause,
     });
 
     return { murmurs, totalCount };
@@ -162,6 +174,7 @@ export class MurmurService {
       where: {
         userId,
         isDeleted: false,
+        replyToId: null,
       },
       include: {
         user: {
@@ -182,6 +195,7 @@ export class MurmurService {
       where: {
         userId,
         isDeleted: false,
+        replyToId: null,
       },
     });
 
@@ -266,6 +280,7 @@ export class MurmurService {
     const murmurs = await prisma.murmur.findMany({
       where: {
         isDeleted: false,
+        replyToId: null,
         content: {
           contains: query,
           mode: 'insensitive',
@@ -289,6 +304,7 @@ export class MurmurService {
     const totalCount = await prisma.murmur.count({
       where: {
         isDeleted: false,
+        replyToId: null,
         content: {
           contains: query,
           mode: 'insensitive',
@@ -307,6 +323,7 @@ export class MurmurService {
     const murmurs = await prisma.murmur.findMany({
       where: {
         isDeleted: false,
+        replyToId: null,
         createdAt: {
           gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
         },
@@ -329,6 +346,7 @@ export class MurmurService {
     const totalCount = await prisma.murmur.count({
       where: {
         isDeleted: false,
+        replyToId: null,
         createdAt: {
           gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
         },
@@ -344,6 +362,41 @@ export class MurmurService {
       where: { userId },
       data: { isDeleted: true },
     });
+  }
+
+  // Get replies for a murmur
+  static async getReplies(murmurId: string, limit: number = 10, offset: number = 0): Promise<{
+    replies: Murmur[];
+    totalCount: number;
+  }> {
+    const replies = await prisma.murmur.findMany({
+      where: {
+        replyToId: murmurId,
+        isDeleted: false,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatar: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+
+    const totalCount = await prisma.murmur.count({
+      where: {
+        replyToId: murmurId,
+        isDeleted: false,
+      },
+    });
+
+    return { replies, totalCount };
   }
 }
 

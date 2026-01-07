@@ -113,7 +113,13 @@ export class LikeService {
     totalCount: number;
   }> {
     const likes = await prisma.like.findMany({
-      where: { userId },
+      where: {
+        userId,
+        murmur: {
+          replyToId: null,
+          isDeleted: false,
+        },
+      },
       include: {
         murmur: {
           include: {
@@ -134,7 +140,13 @@ export class LikeService {
     });
 
     const totalCount = await prisma.like.count({
-      where: { userId },
+      where: {
+        userId,
+        murmur: {
+          replyToId: null,
+          isDeleted: false,
+        },
+      },
     });
 
     return { likes, totalCount };

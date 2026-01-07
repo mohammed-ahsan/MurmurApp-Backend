@@ -122,15 +122,27 @@ export class UserService {
     });
   }
 
-  // Update user counts
+  // Update user counts (increments by the specified amount)
   static async updateCounts(id: string, counts: {
     followersCount?: number;
     followingCount?: number;
     murmursCount?: number;
   }): Promise<void> {
+    const data: any = {};
+    
+    if (counts.followersCount !== undefined) {
+      data.followersCount = { increment: counts.followersCount };
+    }
+    if (counts.followingCount !== undefined) {
+      data.followingCount = { increment: counts.followingCount };
+    }
+    if (counts.murmursCount !== undefined) {
+      data.murmursCount = { increment: counts.murmursCount };
+    }
+    
     await prisma.user.update({
       where: { id },
-      data: counts,
+      data,
     });
   }
 

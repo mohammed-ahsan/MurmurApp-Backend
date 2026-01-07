@@ -102,7 +102,9 @@ router.get('/', optionalAuth, [
     const limit = parseInt(req.query.limit as string) || 10;
     const offset = (page - 1) * limit;
 
-    const { murmurs, totalCount } = await MurmurService.getPublicMurmurs(limit, offset);
+    // Exclude current user's murmurs if authenticated
+    const excludeUserId = req.user?.id;
+    const { murmurs, totalCount } = await MurmurService.getPublicMurmurs(limit, offset, excludeUserId);
 
     // Get like counts
     const murmurIds = murmurs.map((m: any) => m.id);
@@ -393,14 +395,17 @@ router.post('/', authenticate, [
 
     const murmur = await MurmurService.create(userId, content, replyToId);
 
-    // Update user's murmur count
-    await UserService.updateCounts(userId, { murmursCount: 1 });
+    // Update user's murmur count only if it's not a reply
+    if (!replyToId) {
+      await UserService.updateCounts(userId, { murmursCount: 1 });
+    }
 
-    // If it's a reply, create notification for the parent murmur author
+    // If it's a reply, create notification for the parent murmur author and increment reply count
     if (replyToId) {
       const parentMurmur = await MurmurService.findById(replyToId);
       if (parentMurmur) {
         await NotificationService.create('reply', parentMurmur.userId, userId, replyToId);
+        await MurmurService.incrementRepliesCount(replyToId);
       }
     }
 
@@ -448,8 +453,13 @@ router.delete('/:id', authenticate, async (req: AuthRequest, res: express.Respon
     // Soft delete
     await MurmurService.softDelete(murmurId);
 
-    // Update user's murmur count
-    await UserService.updateCounts(userId, { murmursCount: -1 });
+    // Update user's murmur count only if it's not a reply
+    if (!murmur.replyToId) {
+      await UserService.updateCounts(userId, { murmursCount: -1 });
+    } else {
+      // If it's a reply, decrement the parent murmur's reply count
+      await MurmurService.decrementRepliesCount(murmur.replyToId);
+    }
 
     // Delete associated likes
     await LikeService.deleteAllByMurmur(murmurId);
@@ -463,6 +473,74 @@ router.delete('/:id', authenticate, async (req: AuthRequest, res: express.Respon
     return res.status(500).json({
       success: false,
       error: 'Failed to delete murmur',
+    });
+  }
+});
+
+// Get replies for a murmur
+router.get('/:id/replies', optionalAuth, [
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be a positive integer'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 50 })
+    .withMessage('Limit must be between 1 and 50'),
+], handleValidationErrors, async (req: AuthRequest, res: express.Response) => {
+  try {
+    const murmurId = req.params.id;
+    if (!murmurId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Murmur ID is required',
+      });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const offset = (page - 1) * limit;
+    const userId = req.user?.id;
+
+    // Get replies
+    const { replies, totalCount } = await MurmurService.getReplies(murmurId, limit, offset);
+
+    // Get like counts and user's likes for each reply
+    const replyIds = replies.map((r: any) => r.id);
+    const likeCounts = await Promise.all(
+      replyIds.map((id: string) => LikeService.getLikeCount(id))
+    );
+
+    const userLikes = userId ? await Promise.all(
+      replyIds.map((id: string) => LikeService.isUserLiked(userId, id))
+    ) : replyIds.map(() => false);
+
+    // Format response
+    const formattedReplies = replies.map((reply: any, index: number) => ({
+      ...reply,
+      likesCount: likeCounts[index],
+      isLikedByUser: userLikes[index],
+    }));
+
+    return res.json({
+      success: true,
+      data: {
+        replies: formattedReplies,
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNextPage: page * limit < totalCount,
+          hasPreviousPage: page > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Get replies error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch replies',
     });
   }
 });
